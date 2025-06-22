@@ -53,7 +53,7 @@ struct StatsResponse: Codable {
 public actor Daemon {
     private let config: DtnConfig
     private var logger: Logger
-    private var app: Application<RouterResponder<BasicRequestContext>>
+    private var app: any ApplicationProtocol
     private let core: DtnCore
     private let startTime: Date
     
@@ -99,17 +99,14 @@ public actor Daemon {
             await core.registerService(service)
         }
         
-        // Set up HTTP API
-        let router = Router<BasicRequestContext>()
-        
+        // Set up HTTP API with temporary router
+        // We'll recreate it after initialization
         self.app = Application(
-            router: router,
+            router: Router<BasicRequestContext>(),
             configuration: .init(
                 address: .hostname(config.ipv6 ? "::1" : "127.0.0.1", port: Int(config.webPort))
             )
         )
-        
-        setupRoutes(router: router)
         
         // Initialize and register CLAs
         for claConfig in config.clas {
@@ -141,6 +138,12 @@ public actor Daemon {
         logger.info("Node ID: \(core.nodeId)")
         logger.info("Web interface: http://\(config.ipv6 ? "[::1]" : "127.0.0.1"):\(config.webPort)")
         
+        // Set up the application with routes
+        setupApplication()
+        
+        // Debug: Log registered routes
+        logger.info("Routes registered: /test, /, /status, /bundles, /peers, /stats")
+        
         // Start the core
         try await core.start()
         
@@ -150,6 +153,7 @@ public actor Daemon {
     
     /// Set up HTTP routes
     private func setupRoutes(router: Router<BasicRequestContext>) {
+        
         // Simple test route
         router.get("/test") { _, _ in
             return "Test route working"
@@ -176,7 +180,7 @@ public actor Daemon {
         }
         
         // API routes with JSON responses
-        router.get("/status") { _, _ async in
+        router.get("/status") { _, _ in
             let stats = await self.core.getStatistics()
             let status = StatusResponse(
                 nodeId: self.core.nodeId.description,
@@ -199,7 +203,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode status\"}"
         }
         
-        router.get("/bundles") { _, _ async in
+        router.get("/bundles") { _, _ in
             let count = await self.core.store.count()
             let bundleIds = await self.core.store.allIds()
             
@@ -217,7 +221,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode bundles\"}"
         }
         
-        router.get("/peers") { _, _ async in
+        router.get("/peers") { _, _ in
             let peers = await self.core.peerManager.getAllPeers()
             let peerInfos = peers.map { peer in
                 PeerInfo(
@@ -242,7 +246,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode peers\"}"
         }
         
-        router.get("/stats") { _, _ async in
+        router.get("/stats") { _, _ in
             let stats = await self.core.getStatistics()
             let response = StatsResponse(
                 incoming: stats.incoming,
@@ -308,11 +312,17 @@ public actor Daemon {
                 let payload = try await request.body.collect(upTo: 10 * 1024 * 1024) // 10MB limit
                 
                 // Create bundle using builder pattern
+                let creationTime = CreationTimestamp()
+                let lifetimeSeconds = lifetime / 1000.0 // Convert from ms to seconds
+                
+                // Log bundle creation details
+                print("DEBUG: Creating bundle: lifetime=\(lifetimeSeconds)s, creationTime=\(creationTime)")
+                
                 let primaryBlock = PrimaryBlockBuilder(destination: dstEid)
                     .source(srcEid)
                     .reportTo(srcEid)
-                    .creationTimestamp(CreationTimestamp())
-                    .lifetime(lifetime / 1000.0) // Convert from ms to seconds
+                    .creationTimestamp(creationTime)
+                    .lifetime(lifetimeSeconds)
                     .crc(.crc32(0))
                     .build()
                 
@@ -434,5 +444,18 @@ public actor Daemon {
             logger.warning("Unknown routing algorithm '\(config.routing)', defaulting to epidemic")
             return EpidemicRouting()
         }
+    }
+    
+    /// Set up the application with properly configured routes
+    private func setupApplication() {
+        let router = Router<BasicRequestContext>()
+        setupRoutes(router: router)
+        
+        self.app = Application(
+            router: router,
+            configuration: .init(
+                address: .hostname(config.ipv6 ? "::1" : "127.0.0.1", port: Int(config.webPort))
+            )
+        )
     }
 } 

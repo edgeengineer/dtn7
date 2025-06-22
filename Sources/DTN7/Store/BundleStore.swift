@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import BP7
 
 /// A protocol that defines the interface for a bundle store.

@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import BP7
 
 /// A DTN7 node ID, which is an alias for the `EndpointID` from the `bp7` library.

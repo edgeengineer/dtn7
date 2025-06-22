@@ -83,7 +83,7 @@ let package = Package(
             name: "IntegrationTests",
             dependencies: ["DTN7"],
             path: "Tests",
-            sources: ["IntegrationTests/BasicTests.swift", "Utilities/TestFramework.swift"]
+            sources: ["IntegrationTests/BasicTests.swift", "IntegrationTests/HTTPTests.swift", "Utilities/TestFramework.swift"]
         ),
     ]
 )

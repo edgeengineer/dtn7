@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import BP7
 
 /// An in-memory implementation of the `BundleStore` protocol.

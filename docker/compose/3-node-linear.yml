@@ -1,0 +1,78 @@
+version: '3.8'
+
+# 3-node linear topology: node1 <-> node2 <-> node3
+# Used for testing multi-hop routing
+
+services:
+  node1:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: dtn-node1
+    hostname: node1
+    environment:
+      - DTN_NODE_ID=dtn://node1
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/node1.json:/data/config.json:ro
+      - node1-data:/data
+    ports:
+      - "3001:3000"  # Web interface
+      - "4556:4556"  # TCP CLA
+    networks:
+      - dtn-net
+    command: ["dtnd", "--config", "/data/config.json"]
+
+  node2:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: dtn-node2
+    hostname: node2
+    environment:
+      - DTN_NODE_ID=dtn://node2
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/node2.json:/data/config.json:ro
+      - node2-data:/data
+    ports:
+      - "3002:3000"  # Web interface
+      - "4557:4556"  # TCP CLA (mapped to different host port)
+    networks:
+      - dtn-net
+    command: ["dtnd", "--config", "/data/config.json"]
+    depends_on:
+      - node1
+
+  node3:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: dtn-node3
+    hostname: node3
+    environment:
+      - DTN_NODE_ID=dtn://node3
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/node3.json:/data/config.json:ro
+      - node3-data:/data
+    ports:
+      - "3003:3000"  # Web interface
+      - "4558:4556"  # TCP CLA (mapped to different host port)
+    networks:
+      - dtn-net
+    command: ["dtnd", "--config", "/data/config.json"]
+    depends_on:
+      - node2
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+
+networks:
+  dtn-net:
+    driver: bridge

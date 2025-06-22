@@ -1,0 +1,32 @@
+{
+  "nodeId": "dtn://node2",
+  "endpoints": ["dtn://node2/test"],
+  "clas": [
+    {
+      "type": "tcp",
+      "settings": {
+        "port": "4556"
+      }
+    }
+  ],
+  "routing": "epidemic",
+  "statics": [
+    {
+      "eid": "dtn://node1",
+      "addr": "tcp://node1:4556",
+      "services": {},
+      "lastContact": 0
+    },
+    {
+      "eid": "dtn://node3",
+      "addr": "tcp://node3:4556",
+      "services": {},
+      "lastContact": 0
+    }
+  ],
+  "workdir": "/data",
+  "dbFile": "/data/store.db",
+  "webPort": 3000,
+  "janitorInterval": 10,
+  "bundleCleanupInterval": 300
+}

@@ -1,0 +1,44 @@
+# Git
+.git/
+.gitignore
+
+# Build artifacts
+.build/
+.swiftpm/
+DerivedData/
+
+# Test data
+Tests/
+testing_plan.md
+porting_plan.md
+
+# Docker files
+docker/
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Temporary files
+*.swp
+*.tmp
+*.log

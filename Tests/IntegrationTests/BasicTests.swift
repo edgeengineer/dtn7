@@ -27,30 +27,70 @@ struct BasicIntegrationTests {
     
     @Test("Local Ping Echo")
     func localPingEcho() async throws {
+        print("TEST: Starting Local Ping Echo test")
+        
         // Start a single daemon
         var config = DtnConfig()
         config.endpoints = ["dtn://node1/echo", "dtn://node1/ping"]
         
+        print("TEST: Starting daemon...")
         let daemon = try await testFramework.startDaemon(nodeId: "dtn://node1", config: config)
         defer {
             Task { @Sendable in
                 try? await testFramework.stopDaemon(daemon)
             }
         }
+        print("TEST: Daemon started successfully")
+        
+        // Give daemon a bit more time to fully initialize
+        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
         
         // Send a bundle to the echo endpoint
-        try await testFramework.sendBundle(
+        print("TEST: Sending bundle...")
+        print("TEST: Daemon port is \(daemon.config.webPort)")
+        
+        // Try a simple HTTP test first
+        let testUrl = URL(string: "http://localhost:\(daemon.config.webPort)/test")!
+        do {
+            let (data, response) = try await URLSession.shared.data(from: testUrl)
+            if let httpResponse = response as? HTTPURLResponse {
+                print("TEST: HTTP test endpoint returned: \(httpResponse.statusCode)")
+                if let body = String(data: data, encoding: .utf8) {
+                    print("TEST: Response body: \(body)")
+                }
+            }
+        } catch {
+            print("TEST: Failed to reach test endpoint: \(error)")
+        }
+        
+        try await testFramework.sendBundleToNode(
+            nodeId: "dtn://node1",
             from: "dtn://node1/ping",
             to: "dtn://node1/echo",
             payload: "Hello, DTN!"
         )
+        print("TEST: Bundle sent")
         
         // Wait a moment for processing
+        print("TEST: Waiting for processing...")
         try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
         
         // Check if we received the echo (would need echo service implementation)
         // For now, just verify the daemon is running
+        print("TEST: Checking daemon status...")
         #expect(daemon.process.isRunning)
+        
+        // Print daemon output for debugging
+        let output = daemon.getOutput()
+        let errors = daemon.getErrors()
+        if !output.isEmpty {
+            print("Daemon stdout: \(output)")
+        }
+        if !errors.isEmpty {
+            print("Daemon stderr: \(errors)")
+        }
+        
+        print("TEST: Test completed")
     }
     
     @Test("Two Node Communication")

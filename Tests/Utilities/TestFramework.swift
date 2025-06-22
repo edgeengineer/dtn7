@@ -6,22 +6,40 @@ import Foundation
 import DTN7
 import BP7
 
-/// Test framework for DTN7 integration tests
-public final class DTNTestFramework: @unchecked Sendable {
-    private var daemons: [String: Process] = [:]
+/// Global actor for managing test ports
+@globalActor
+actor TestPortManager {
+    static let shared = TestPortManager()
+    
     private var basePort: UInt16 = 10000
     private var usedPorts: Set<UInt16> = []
     
-    public init() {}
-    
-    /// Get a unique port for testing
-    public func getPort() -> UInt16 {
+    func allocatePort() -> UInt16 {
         var port = basePort
         while usedPorts.contains(port) {
             port += 1
         }
         usedPorts.insert(port)
+        basePort = port + 1
         return port
+    }
+    
+    func releasePort(_ port: UInt16) {
+        usedPorts.remove(port)
+    }
+}
+
+/// Test framework for DTN7 integration tests
+public final class DTNTestFramework: @unchecked Sendable {
+    private var daemons: [String: Process] = [:]
+    private var daemonPorts: [String: UInt16] = [:]
+    
+    public init() {}
+    
+    /// Get a unique port for testing
+    @TestPortManager
+    public func getPort() async -> UInt16 {
+        return await TestPortManager.shared.allocatePort()
     }
     
     /// Start a DTN daemon with the given configuration
@@ -29,7 +47,13 @@ public final class DTNTestFramework: @unchecked Sendable {
         var daemonConfig = config ?? DtnConfig()
         
         // Set unique ports - always assign a unique port for tests
-        daemonConfig.webPort = getPort()
+        daemonConfig.webPort = await getPort()
+        
+        // Also set unique TCP CLA port if using default CLA
+        if daemonConfig.clas.isEmpty {
+            let tcpPort = await getPort()
+            daemonConfig.clas = [DtnConfig.CLAConfig(type: "tcp", settings: ["port": String(tcpPort)])]
+        }
         
         // Set node ID
         if daemonConfig.nodeId.isEmpty {
@@ -44,14 +68,29 @@ public final class DTNTestFramework: @unchecked Sendable {
         
         // Start daemon process using command line arguments to avoid config file JSON issues
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         
-        var arguments = [
-            "swift", "run", "dtnd",
-            "--nodeid", daemonConfig.nodeId.isEmpty ? nodeId : daemonConfig.nodeId,
-            "--web-port", String(daemonConfig.webPort),
-            "--workdir", workdir.path
-        ]
+        // Use pre-built binary if available
+        let binaryPath = FileManager.default.currentDirectoryPath + "/.build/debug/dtnd"
+        var arguments: [String]
+        
+        if FileManager.default.fileExists(atPath: binaryPath) {
+            print("Using pre-built daemon binary at \(binaryPath)")
+            process.executableURL = URL(fileURLWithPath: binaryPath)
+            arguments = [
+                "--nodeid", daemonConfig.nodeId.isEmpty ? nodeId : daemonConfig.nodeId,
+                "--web-port", String(daemonConfig.webPort),
+                "--workdir", workdir.path
+            ]
+        } else {
+            print("Falling back to swift run for daemon")
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            arguments = [
+                "swift", "run", "dtnd",
+                "--nodeid", daemonConfig.nodeId.isEmpty ? nodeId : daemonConfig.nodeId,
+                "--web-port", String(daemonConfig.webPort),
+                "--workdir", workdir.path
+            ]
+        }
         
         // Add endpoints
         for endpoint in daemonConfig.endpoints {
@@ -132,7 +171,10 @@ public final class DTNTestFramework: @unchecked Sendable {
             errorPipe: errorPipe
         )
         
-        daemons[nodeId] = process
+        // Store using the actual node ID from config
+        let actualNodeId = daemonConfig.nodeId.isEmpty ? nodeId : daemonConfig.nodeId
+        daemons[actualNodeId] = process
+        daemonPorts[actualNodeId] = daemonConfig.webPort
         return handle
     }
     
@@ -145,7 +187,14 @@ public final class DTNTestFramework: @unchecked Sendable {
         try? FileManager.default.removeItem(at: handle.workdir)
         
         daemons.removeValue(forKey: handle.nodeId)
-        usedPorts.remove(handle.config.webPort)
+        await TestPortManager.shared.releasePort(handle.config.webPort)
+        // Also remove TCP CLA ports
+        for cla in handle.config.clas {
+            if let portStr = cla.settings["port"], let port = UInt16(portStr) {
+                await TestPortManager.shared.releasePort(port)
+            }
+        }
+        daemonPorts.removeValue(forKey: handle.nodeId)
     }
     
     /// Stop all daemons
@@ -155,18 +204,31 @@ public final class DTNTestFramework: @unchecked Sendable {
             process.waitUntilExit()
         }
         daemons.removeAll()
-        usedPorts.removeAll()
+        daemonPorts.removeAll()
+        // Don't clear global ports as other tests might be using them
     }
     
     /// Wait for daemon to be ready
-    private func waitForDaemonReady(port: UInt16, timeout: TimeInterval = 5) async throws {
-        // For now, just wait a fixed time for the daemon to start
-        // TODO: Fix the HTTP endpoints and restore proper readiness checking
-        try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+    private func waitForDaemonReady(port: UInt16, timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        let url = URL(string: "http://localhost:\(port)/test")!
         
-        // Just check that the process is still running
-        // If it crashed during startup, this will fail
-        // Note: We can't rely on HTTP endpoints due to routing issues in the daemon
+        while Date() < deadline {
+            do {
+                let (_, response) = try await URLSession.shared.data(from: url)
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode == 200 {
+                    // Daemon is ready!
+                    return
+                }
+            } catch {
+                // Continue waiting
+            }
+            
+            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+        
+        throw TestError.daemonStartTimeout
     }
     
     /// Wait for peers to connect
@@ -195,21 +257,57 @@ public final class DTNTestFramework: @unchecked Sendable {
         // TODO: Fix the daemon HTTP routes
     }
     
+    /// Send a bundle to a specific daemon
+    public func sendBundleToNode(nodeId: String, from: String, to: String, payload: String, lifetime: Int = 3600) async throws {
+        guard let port = daemonPorts[nodeId] else {
+            print("FRAMEWORK: ERROR - No port found for node \(nodeId)")
+            print("FRAMEWORK: Available nodes: \(daemonPorts.keys.joined(separator: ", "))")
+            throw TestError.bundleSendFailed
+        }
+        print("FRAMEWORK: Using port \(port) for node \(nodeId)")
+        try await sendBundle(from: from, to: to, payload: payload, lifetime: lifetime, daemonPort: port)
+    }
+    
     /// Send a bundle
-    public func sendBundle(from: String, to: String, payload: String, lifetime: Int = 3600) async throws {
+    public func sendBundle(from: String, to: String, payload: String, lifetime: Int = 3600, daemonPort: UInt16? = nil) async throws {
+        print("FRAMEWORK: Preparing to send bundle from \(from) to \(to)")
+        
+        // Use pre-built binary if available, otherwise fall back to swift run
+        let binaryPath = FileManager.default.currentDirectoryPath + "/.build/debug/dtnsend"
         let sendProcess = Process()
-        sendProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        sendProcess.arguments = [
-            "swift", "run", "dtnsend",
-            "--sender", from,
-            "--receiver", to,
-            "--lifetime", String(lifetime)
-        ]
+        
+        // Set the web port via environment variable if provided
+        if let port = daemonPort {
+            var env = ProcessInfo.processInfo.environment
+            env["DTN_WEB_PORT"] = String(port)
+            sendProcess.environment = env
+            print("FRAMEWORK: Setting DTN_WEB_PORT to \(port)")
+        }
+        
+        if FileManager.default.fileExists(atPath: binaryPath) {
+            print("FRAMEWORK: Using pre-built binary at \(binaryPath)")
+            sendProcess.executableURL = URL(fileURLWithPath: binaryPath)
+            sendProcess.arguments = [
+                "--sender", from,
+                "--receiver", to,
+                "--lifetime", String(lifetime)
+            ]
+        } else {
+            print("FRAMEWORK: Falling back to swift run")
+            sendProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            sendProcess.arguments = [
+                "swift", "run", "dtnsend",
+                "--sender", from,
+                "--receiver", to,
+                "--lifetime", String(lifetime)
+            ]
+        }
         
         // Provide payload via stdin
         let inputPipe = Pipe()
         sendProcess.standardInput = inputPipe
         
+        print("FRAMEWORK: Starting dtnsend process...")
         try sendProcess.run()
         
         if let payloadData = payload.data(using: .utf8) {
@@ -217,8 +315,10 @@ public final class DTNTestFramework: @unchecked Sendable {
             inputPipe.fileHandleForWriting.closeFile()
         }
         
+        print("FRAMEWORK: Waiting for dtnsend to complete...")
         sendProcess.waitUntilExit()
         
+        print("FRAMEWORK: dtnsend terminated with status: \(sendProcess.terminationStatus)")
         guard sendProcess.terminationStatus == 0 else {
             throw TestError.bundleSendFailed
         }

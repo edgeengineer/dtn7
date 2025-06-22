@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import BP7
 import CBOR
 import AsyncAlgorithms
@@ -61,10 +65,16 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
                 let httpHandler = HTTPInitialRequestHandler(host: self.host)
+                let frameHandler: @Sendable (WebSocketFrame) async -> Void = { [weak self] frame in
+                    await self?.handleWebSocketFrame(frame)
+                }
+                
                 let websocketUpgrader = NIOWebSocketClientUpgrader(
                     requestKey: Self.generateWebSocketKey(),
-                    upgradePipelineHandler: { channel, _ in
-                        self.setupWebSocketPipeline(channel: channel)
+                    upgradePipelineHandler: { @Sendable channel, _ in
+                        // Create handler in closure to avoid actor isolation issues
+                        let handler = WebSocketHandler(frameHandler: frameHandler)
+                        return channel.pipeline.addHandler(handler)
                     }
                 )
                 
@@ -82,6 +92,12 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
         
         do {
             channel = try await bootstrap.connect(host: host, port: port).get()
+            
+            // Extract and store the WebSocket handler
+            if let handler = try? await channel!.pipeline.handler(type: WebSocketHandler.self).get() {
+                webSocketHandler = handler
+            }
+            
             connected = true
             
             // Send initial mode command
@@ -171,7 +187,7 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
             
         case .json:
             // Send as JSON with base64 encoded data
-            var jsonDict: [String: Any] = [
+            let jsonDict: [String: Any] = [
                 "src": sendRequest.src,
                 "dst": sendRequest.dst,
                 "delivery_notification": sendRequest.delivery_notification,
@@ -192,14 +208,6 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
     
     // MARK: - Private Methods
     
-    private func setupWebSocketPipeline(channel: Channel) -> EventLoopFuture<Void> {
-        let handler = WebSocketHandler { [weak self] in
-            await self?.handleWebSocketFrame($0)
-        }
-        self.webSocketHandler = handler
-        
-        return channel.pipeline.addHandler(handler)
-    }
     
     private func handleWebSocketFrame(_ frame: WebSocketFrame) async {
         switch frame.opcode {
@@ -220,8 +228,8 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
             
         case .ping:
             // Respond with pong
-            if let handler = webSocketHandler {
-                var buffer = channel!.allocator.buffer(capacity: 0)
+            if webSocketHandler != nil {
+                let buffer = channel!.allocator.buffer(capacity: 0)
                 let pongFrame = WebSocketFrame(fin: true, opcode: .pong, data: buffer)
                 channel?.writeAndFlush(pongFrame, promise: nil)
             }
@@ -300,7 +308,7 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
     }
     
     private func sendTextMessage(_ text: String) async throws {
-        guard let handler = webSocketHandler else {
+        guard webSocketHandler != nil else {
             throw ApplicationInterfaceError.notConnected
         }
         
@@ -312,7 +320,7 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
     }
     
     private func sendBinaryMessage(_ data: Data) async throws {
-        guard let handler = webSocketHandler else {
+        guard webSocketHandler != nil else {
             throw ApplicationInterfaceError.notConnected
         }
         
@@ -331,7 +339,7 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
                 do {
                     // Send ping
                     if let channel = channel {
-                        var buffer = channel.allocator.buffer(capacity: 0)
+                        let buffer = channel.allocator.buffer(capacity: 0)
                         let pingFrame = WebSocketFrame(fin: true, opcode: .ping, data: buffer)
                         channel.writeAndFlush(pingFrame, promise: nil)
                     }
@@ -376,7 +384,7 @@ public actor WebSocketApplicationInterface: ApplicationInterface {
 // MARK: - Helper Classes
 
 /// WebSocket handler for NIO
-private final class WebSocketHandler: ChannelInboundHandler {
+private final class WebSocketHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
     
@@ -395,7 +403,7 @@ private final class WebSocketHandler: ChannelInboundHandler {
 }
 
 /// HTTP request handler for WebSocket upgrade
-private final class HTTPInitialRequestHandler: ChannelInboundHandler, RemovableChannelHandler {
+private final class HTTPInitialRequestHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPClientResponsePart
     typealias OutboundOut = HTTPClientRequestPart
     

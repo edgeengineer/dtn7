@@ -1,0 +1,91 @@
+version: '3.8'
+
+# Full mesh topology for testing epidemic routing
+# All nodes can reach all other nodes
+
+services:
+  epidemic-node1:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: epidemic-node1
+    hostname: epidemic-node1
+    environment:
+      - DTN_NODE_ID=dtn://epidemic1
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/epidemic-node1.json:/data/config.json:ro
+      - epidemic-node1-data:/data
+    ports:
+      - "3011:3000"
+    networks:
+      - epidemic-net
+    command: ["dtnd", "--config", "/data/config.json"]
+
+  epidemic-node2:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: epidemic-node2
+    hostname: epidemic-node2
+    environment:
+      - DTN_NODE_ID=dtn://epidemic2
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/epidemic-node2.json:/data/config.json:ro
+      - epidemic-node2-data:/data
+    ports:
+      - "3012:3000"
+    networks:
+      - epidemic-net
+    command: ["dtnd", "--config", "/data/config.json"]
+
+  epidemic-node3:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: epidemic-node3
+    hostname: epidemic-node3
+    environment:
+      - DTN_NODE_ID=dtn://epidemic3
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/epidemic-node3.json:/data/config.json:ro
+      - epidemic-node3-data:/data
+    ports:
+      - "3013:3000"
+    networks:
+      - epidemic-net
+    command: ["dtnd", "--config", "/data/config.json"]
+
+  epidemic-node4:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    container_name: epidemic-node4
+    hostname: epidemic-node4
+    environment:
+      - DTN_NODE_ID=dtn://epidemic4
+      - DTN_WEB_PORT=3000
+      - DTN_WORKDIR=/data
+    volumes:
+      - ./configs/epidemic-node4.json:/data/config.json:ro
+      - epidemic-node4-data:/data
+    ports:
+      - "3014:3000"
+    networks:
+      - epidemic-net
+    command: ["dtnd", "--config", "/data/config.json"]
+
+volumes:
+  epidemic-node1-data:
+  epidemic-node2-data:
+  epidemic-node3-data:
+  epidemic-node4-data:
+
+networks:
+  epidemic-net:
+    driver: bridge

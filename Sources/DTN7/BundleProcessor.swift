@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import BP7
 import Logging
 import CBOR
@@ -360,8 +364,14 @@ public actor BundleProcessor {
     /// Check if a bundle has expired
     private func isBundleExpired(_ bundle: BP7.Bundle) -> Bool {
         let now = Date()
-        let creationTime = Date(timeIntervalSince1970: Double(bundle.primary.creationTimestamp.getDtnTime()) / 1000.0)
+        let dtnTime = bundle.primary.creationTimestamp.getDtnTime()
+        // DTN time is milliseconds since 2000-01-01, need to convert to Unix time
+        let unixTimeMs = dtnTime + 946_684_800_000 // Add milliseconds from 1970 to 2000
+        let creationTime = Date(timeIntervalSince1970: Double(unixTimeMs) / 1000.0)
         let expiryTime = creationTime.addingTimeInterval(bundle.primary.lifetime)
+        
+        logger.debug("Bundle expiry check: dtnTime=\(dtnTime)ms, unixTime=\(unixTimeMs)ms, creationTime=\(creationTime), lifetime=\(bundle.primary.lifetime)s, expiryTime=\(expiryTime), now=\(now), expired=\(now > expiryTime)")
+        
         return now > expiryTime
     }
     

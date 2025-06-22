@@ -99,51 +99,148 @@ try await client.sendText(
 
 ## Command Line Tools
 
-DTN7 Swift includes several command-line tools:
+DTN7 Swift includes several command-line tools that are built as executable targets. Each tool serves a specific purpose in the DTN ecosystem:
 
 ### dtnd - DTN Daemon
+The main DTN daemon that runs the node. This is the core executable that implements the Bundle Protocol, manages convergence layers, handles routing, and provides APIs for applications.
+
 ```bash
 # Start daemon with custom configuration
 dtnd --nodeid dtn://mynode \
      --web-port 3000 \
      --db mem \
      --routing flooding
+
+# Common options:
+# --nodeid: Set the node's endpoint ID (required)
+# --web-port: HTTP/WebSocket API port (default: 3000)
+# --db: Storage backend - "mem" or "sqlite" (default: sqlite)
+# --routing: Routing algorithm - epidemic, flooding, static, spray, sink
+# -C: Configure convergence layers (can be specified multiple times)
+# -e: Register local endpoints
+# -s: Add static peer connections
 ```
 
 ### dtnsend - Send Bundles
+A command-line tool for sending bundles through the DTN network. Supports both interactive input and file transmission.
+
 ```bash
-# Send a text message
+# Send a text message via stdin
 echo "Hello World" | dtnsend -s dtn://node1/app -d dtn://node2/app
 
 # Send a file
 dtnsend -s dtn://node1/files -d dtn://node2/files --file data.txt
+
+# Send with custom lifetime (in seconds)
+dtnsend -s dtn://node1/app -d dtn://node2/app -l 3600
+
+# Options:
+# -s, --sender: Source endpoint ID
+# -d, --destination: Destination endpoint ID
+# -l, --lifetime: Bundle lifetime in seconds (default: 86400)
+# -p, --port: Daemon web port (default: 3000)
+# --file: Send file instead of stdin
 ```
 
 ### dtnrecv - Receive Bundles
+A command-line tool for receiving bundles from the DTN network. Can run interactively or save bundles to files.
+
 ```bash
 # Listen for bundles on an endpoint
 dtnrecv -e incoming
 
 # Receive and save to file
 dtnrecv -e files --save-to downloads/
+
+# Receive with verbose output
+dtnrecv -e myapp -v
+
+# Options:
+# -e, --endpoint: Local endpoint to receive on
+# -p, --port: Daemon web port (default: 3000)
+# -v, --verbose: Show detailed bundle information
+# --save-to: Directory to save received bundle payloads
+# --delete: Delete bundle after receiving (with bundle ID)
 ```
 
 ### dtnquery - Query Daemon Status
+A tool for querying and monitoring the DTN daemon's status, including bundle store, peers, and routing information.
+
 ```bash
 # Get node status
 dtnquery status
 
-# List peers
+# List current peers
 dtnquery peers
+
+# Show bundle store contents
+dtnquery bundles
+
+# Display routing table
+dtnquery routes
 
 # Show statistics
 dtnquery stats
+
+# Options:
+# -p, --port: Daemon web port (default: 3000)
+# -j, --json: Output in JSON format
 ```
 
 ### dtntrigger - Execute Commands on Bundle Receipt
+A tool that watches for incoming bundles and executes specified commands when bundles arrive. Useful for automated processing.
+
 ```bash
 # Run a command when bundles arrive
 dtntrigger -e commands -- ./process_bundle.sh
+
+# Pass bundle payload to command via stdin
+dtntrigger -e data --stdin -- python3 process_data.py
+
+# Options:
+# -e, --endpoint: Endpoint to monitor
+# -p, --port: Daemon web port (default: 3000)
+# --stdin: Pass bundle payload to command via stdin
+# --env: Set environment variables with bundle metadata
+# --: Separates dtntrigger options from command to execute
+```
+
+### dtnecho - Echo Service (Testing)
+A simple echo service that receives bundles and sends them back to the sender. Primarily used for testing DTN connectivity and round-trip times.
+
+```bash
+# Run echo service
+dtnecho
+
+# Run with verbose output
+dtnecho -v
+
+# Options:
+# -p, --port: Daemon web port (default: 3000)
+# -v, --verbose: Show detailed information for each echoed bundle
+# --ipv6: Use IPv6 for daemon connection
+```
+
+### dtnping - Ping Tool (Testing)
+A ping-like tool for testing DTN connectivity and measuring round-trip times. Sends bundles to an echo service and waits for responses.
+
+```bash
+# Ping an echo service
+dtnping -d dtn://node2/echo
+
+# Send 10 pings with custom size
+dtnping -d dtn://node2/echo -c 10 -s 1024
+
+# Set custom timeout
+dtnping -d dtn://node2/echo -t 5000
+
+# Options:
+# -d, --destination: Destination endpoint (must be an echo service)
+# -c, --count: Number of pings to send (default: -1 for infinite)
+# -s, --size: Payload size in bytes (default: 64)
+# -t, --timeout: Timeout in milliseconds (default: 5000)
+# -p, --port: Daemon web port (default: 3000)
+# -v, --verbose: Show detailed information
 ```
 
 ## Architecture
@@ -245,6 +342,58 @@ for await bundle in interface.incomingBundles {
 }
 ```
 
+## Testing
+
+DTN7 Swift includes comprehensive test coverage with both unit tests and integration tests.
+
+### Unit Tests
+
+Unit tests are located in `Tests/UnitTests/` and test individual components in isolation:
+
+- **EndpointIDTests** - Tests for endpoint ID parsing and validation
+- **PeerManagerTests** - Tests for peer management functionality
+- **ServiceRegistryTests** - Tests for service registration and discovery
+- **BundleStoreTests** - Tests for bundle storage implementations
+- **RoutingTests** - Tests for routing algorithm implementations
+
+Run unit tests with:
+```bash
+swift test --filter UnitTests
+```
+
+### Integration Tests
+
+Integration tests are located in `Tests/IntegrationTests/` and test multi-component scenarios:
+
+- **BasicIntegrationTests** - Tests basic DTN functionality like ping/echo
+- **RoutingIntegrationTests** - Tests routing algorithms with multiple nodes
+
+Run integration tests with:
+```bash
+swift test --filter IntegrationTests
+```
+
+### Shell-based Tests
+
+The `tests/` directory contains shell scripts that test full daemon functionality:
+
+```bash
+# Run all shell tests
+./tests/run_all_tests.sh
+
+# Run specific test
+./tests/local_ping_echo.sh
+
+# Keep test running for debugging
+./tests/local_ping_echo.sh -k
+```
+
+Available shell tests:
+- `local_ping_echo.sh` - Tests echo service functionality
+- `lifetime.sh` - Tests bundle expiration
+- `store_delete.sh` - Tests bundle deletion
+- `local_nodes_dtn.sh` - Tests multi-node communication
+
 ## Building from Source
 
 ```bash
@@ -255,8 +404,20 @@ cd dtn7
 # Build the project
 swift build
 
-# Run tests
+# Run all tests (unit and integration)
 swift test
+
+# Run only unit tests
+swift test --filter UnitTests
+
+# Run only integration tests
+swift test --filter IntegrationTests
+
+# Run specific test suite
+swift test --filter EndpointIDTests
+
+# Run tests with verbose output
+swift test --verbose
 
 # Build for release
 swift build -c release

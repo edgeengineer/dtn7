@@ -1,6 +1,10 @@
 import DTN7
 import ArgumentParser
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 @main
 struct DtnSend: AsyncParsableCommand {

@@ -1,0 +1,155 @@
+name: Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        swift: ["6.0"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: ${{ matrix.swift }}
+    
+    - name: Get Swift version
+      run: swift --version
+    
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev
+    
+    - name: Build
+      run: swift build
+    
+    - name: Run tests
+      run: swift test
+  
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "6.0"
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev
+    
+    - name: Build
+      run: swift build
+    
+    - name: Run integration tests
+      run: swift test --filter "IntegrationTests"
+  
+  docker-tests:
+    name: Docker Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      run: |
+        cd docker
+        docker build -t dtn7-swift:test .
+    
+    - name: Run Docker Compose tests
+      run: |
+        cd docker/compose
+        docker-compose -f 3-node-linear.yml config
+        # Basic validation that compose files are valid
+    
+    - name: Test container startup
+      run: |
+        docker run -d --name test-dtnd \
+          -e DTN_NODE_ID=dtn://test \
+          -e DTN_WEB_PORT=3000 \
+          -p 3000:3000 \
+          dtn7-swift:test
+        
+        # Wait for startup
+        sleep 10
+        
+        # Check health
+        curl -f http://localhost:3000/status || exit 1
+        
+        # Cleanup
+        docker stop test-dtnd
+        docker rm test-dtnd
+  
+  lint:
+    name: Swift Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "6.0"
+    
+    - name: Install swift-format
+      run: |
+        git clone https://github.com/apple/swift-format.git
+        cd swift-format
+        swift build -c release
+        sudo cp .build/release/swift-format /usr/local/bin/
+    
+    - name: Check formatting
+      run: |
+        swift-format lint --recursive Sources/ Tests/
+  
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "6.0"
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev
+    
+    - name: Build and test with coverage
+      run: |
+        swift test --enable-code-coverage
+    
+    - name: Generate coverage report
+      run: |
+        swift package coverage-report
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: .build/debug/codecov/*.json
+        fail_ci_if_error: false

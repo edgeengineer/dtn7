@@ -113,15 +113,23 @@ This phase focuses on the user-facing parts of the system: the command-line tool
 
 Testing is crucial and should be done throughout the process, but this phase focuses on comprehensive integration testing.
 
--   [ ] **6.1: Unit Tests**: Write `Swift Testing` (NOT XCTest) unit tests for each ported component (data structures, routing logic, CLA parsers, etc.).
+-   [x] **6.1: Unit Tests**: Write `Swift Testing` (NOT XCTest) unit tests for each ported component (data structures, routing logic, CLA parsers, etc.).
 
--   [ ] **6.2: Integration Tests**: Re-create the scenarios from the `dtn7-rs/tests/` directory.
-    -   [ ] Write Swift scripts or use shell scripts to set up local nodes and test interactions.
-    -   [ ] Test scenarios like `local_ping_echo.sh`.
+-   [x] **6.2: Integration Tests**: Adapt the test scenarios from `dtn7-rs/tests/` using Swift-native approaches.
+    -   [x] Create a Swift test framework for managing daemon lifecycle and multi-node scenarios.
+    -   [x] Port key test scenarios: `local_ping_echo`, `routing_epidemic`, `lifetime_tests`, `store_and_forward`.
+    -   [x] Maintain Docker infrastructure for system-level testing.
 
--   [ ] **6.3: Documentation**:
+-   [x] **6.3: Test Infrastructure**: Build comprehensive testing support.
+    -   [x] Port test utilities from `libshelltests.sh` to Swift.
+    -   [x] Create Docker images for Swift dtnd.
+    -   [x] Set up GitHub Actions for automated testing.
+    -   [ ] Consider fuzzing for protocol implementations.
+
+-   [ ] **6.4: Documentation**:
     -   [ ] Add Swift-DocC comments to the public API.
     -   [ ] Create a "Getting Started" guide similar to the one in `dtn7-rs/doc/`.
+    -   [ ] Document testing approach and how to run tests.
 
 ---
 
