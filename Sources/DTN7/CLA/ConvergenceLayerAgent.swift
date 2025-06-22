@@ -85,4 +85,9 @@ public actor CLARegistry {
         }
         clas.removeAll()
     }
+    
+    /// Check if any CLAs are active/accepting connections
+    public func hasActiveCLA() -> Bool {
+        return !clas.isEmpty
+    }
 }

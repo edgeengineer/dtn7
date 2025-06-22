@@ -7,15 +7,37 @@ import FoundationEssentials
 import Foundation
 #endif
 
-@Suite("HTTP Integration Tests")
+@Suite("HTTP Integration Tests", .serialized)
 struct HTTPIntegrationTests {
     let testFramework = DTNTestFramework()
     
-    @Test("HTTP Endpoint Test")
+    /// Kill any leftover processes that might interfere with tests
+    private func killLeftoverProcesses() async {
+        let killProcess = Process()
+        killProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        killProcess.arguments = ["pkill", "-f", "dtnd"]
+        killProcess.standardOutput = Pipe()
+        killProcess.standardError = Pipe()
+        
+        do {
+            try killProcess.run()
+            killProcess.waitUntilExit()
+        } catch {
+            // Ignore errors - process might not exist
+        }
+        
+        // Give time for processes to clean up
+        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+    }
+    
+    @Test(.timeLimit(.minutes(1)))
     func httpEndpointTest() async throws {
-        // Start daemon with specific port
-        var config = DtnConfig()
-        config.webPort = 9999
+        // Clean up any leftover processes
+        await killLeftoverProcesses()
+        
+        // Start daemon with dynamic port allocation instead of hardcoded
+        let config = DtnConfig()
+        // Don't set webPort, let framework allocate it
         
         let daemon = try await testFramework.startDaemon(nodeId: "dtn://httptest", config: config)
         defer {

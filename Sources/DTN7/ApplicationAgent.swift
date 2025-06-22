@@ -163,10 +163,16 @@ public actor ApplicationAgent {
             return true
         }
         
-        // Try channel delivery
+        // Try channel delivery - use non-blocking approach to prevent HTTP handler blocking
         if let channel = deliveryChannels[endpoint] {
             logger.info("Delivering bundle \(bundleId) to channel for \(endpoint)")
-            await channel.send(bundle)
+            
+            // Spawn a detached task for channel delivery to prevent blocking the HTTP response
+            Task.detached {
+                await channel.send(bundle)
+            }
+            
+            // Return true immediately - the bundle will be delivered asynchronously
             return true
         }
         

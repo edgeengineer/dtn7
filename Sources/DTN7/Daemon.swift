@@ -13,6 +13,7 @@ struct StatusResponse: Codable {
     let uptime: TimeInterval
     let version: String
     let statistics: StatsInfo
+    let daemonId: String?
 }
 
 struct StatsInfo: Codable {
@@ -49,18 +50,24 @@ struct StatsResponse: Codable {
     let stored: UInt64
 }
 
+enum DaemonError: Error {
+    case applicationNotInitialized
+}
+
 /// The main DTN daemon class.
 public actor Daemon {
     private let config: DtnConfig
     private var logger: Logger
-    private var app: any ApplicationProtocol
+    private var app: (any ApplicationProtocol)?
     private let core: DtnCore
     private let startTime: Date
+    private let daemonId: String
     
     public init(config: DtnConfig) async throws {
         self.config = config
         self.logger = Logger(label: "dtnd")
         self.startTime = Date()
+        self.daemonId = ProcessInfo.processInfo.environment["DTN_DAEMON_ID"] ?? ""
         
         // Initialize store based on config
         let store: any BundleStore
@@ -99,14 +106,8 @@ public actor Daemon {
             await core.registerService(service)
         }
         
-        // Set up HTTP API with temporary router
-        // We'll recreate it after initialization
-        self.app = Application(
-            router: Router<BasicRequestContext>(),
-            configuration: .init(
-                address: .hostname(config.ipv6 ? "::1" : "127.0.0.1", port: Int(config.webPort))
-            )
-        )
+        // HTTP API will be set up in setupApplication() when routes are ready
+        self.app = nil
         
         // Initialize and register CLAs
         for claConfig in config.clas {
@@ -148,11 +149,14 @@ public actor Daemon {
         try await core.start()
         
         // Run the HTTP server
+        guard let app = app else {
+            throw DaemonError.applicationNotInitialized
+        }
         try await app.runService()
     }
     
     /// Set up HTTP routes
-    private func setupRoutes(router: Router<BasicRequestContext>) {
+    private func setupRoutes(router: Router<some RequestContext>) {
         
         // Simple test route
         router.get("/test") { _, _ in
@@ -191,7 +195,8 @@ public actor Daemon {
                     outgoing: stats.outgoing,
                     delivered: stats.delivered,
                     stored: UInt64(stats.stored)
-                )
+                ),
+                daemonId: self.daemonId.isEmpty ? nil : self.daemonId
             )
             
             let encoder = JSONEncoder()
@@ -448,9 +453,11 @@ public actor Daemon {
     
     /// Set up the application with properly configured routes
     private func setupApplication() {
-        let router = Router<BasicRequestContext>()
+        // Create a new router with all routes configured
+        let router = Router()
         setupRoutes(router: router)
         
+        // Replace the app with one that has the properly configured router
         self.app = Application(
             router: router,
             configuration: .init(

@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -77,13 +77,14 @@ let package = Package(
             dependencies: ["DTN7", .product(name: "ArgumentParser", package: "swift-argument-parser")]),
         .testTarget(
             name: "UnitTests",
-            dependencies: ["DTN7"]
+            dependencies: ["DTN7"],
+            path: "Tests/UnitTests"
         ),
         .testTarget(
             name: "IntegrationTests",
             dependencies: ["DTN7"],
             path: "Tests",
-            sources: ["IntegrationTests/BasicTests.swift", "IntegrationTests/HTTPTests.swift", "Utilities/TestFramework.swift"]
+            sources: ["IntegrationTests/BasicTests.swift", "IntegrationTests/HTTPTests.swift", "IntegrationTests/AdvancedTests.swift", "Utilities/TestFramework.swift"]
         ),
     ]
 )

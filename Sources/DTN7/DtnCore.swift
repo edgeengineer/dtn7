@@ -17,6 +17,7 @@ public actor DtnCore {
     public let peerManager: PeerManager
     public let serviceRegistry: ServiceRegistry
     public let applicationAgent: ApplicationAgent
+    public let janitor: Janitor
     
     // Routing agent (optional, can be set later)
     private var routingAgent: (any RoutingAgent)?
@@ -45,6 +46,7 @@ public actor DtnCore {
         self.peerManager = PeerManager(peerTimeout: config.peerTimeout)
         self.serviceRegistry = ServiceRegistry()
         self.applicationAgent = ApplicationAgent()
+        self.janitor = Janitor(interval: TimeInterval(config.janitorInterval))
         
         // Register the node ID as a local endpoint
         self.localEndpoints.insert(nodeId)
@@ -62,6 +64,10 @@ public actor DtnCore {
             try await agent.start()
         }
         
+        // Set janitor core reference and start it
+        await janitor.setCore(self)
+        await janitor.start()
+        
         // Start background tasks
         startBackgroundTasks()
         
@@ -77,6 +83,9 @@ public actor DtnCore {
             task.cancel()
         }
         backgroundTasks.removeAll()
+        
+        // Stop janitor
+        await janitor.stop()
         
         // Stop components
         await peerManager.stop()
