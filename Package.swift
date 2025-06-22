@@ -22,6 +22,8 @@ let package = Package(
         .executable(name: "dtnrecv", targets: ["dtnrecv"]),
         .executable(name: "dtnsend", targets: ["dtnsend"]),
         .executable(name: "dtntrigger", targets: ["dtntrigger"]),
+        .executable(name: "dtnecho", targets: ["dtnecho"]),
+        .executable(name: "dtnping", targets: ["dtnping"]),
     ],
     dependencies: [
         .package(url: "https://github.com/edgeengineer/bp7.git", from: "0.0.5"),
@@ -67,9 +69,21 @@ let package = Package(
         .executableTarget(
             name: "dtntrigger",
             dependencies: ["DTN7", .product(name: "ArgumentParser", package: "swift-argument-parser")]),
+        .executableTarget(
+            name: "dtnecho",
+            dependencies: ["DTN7", .product(name: "ArgumentParser", package: "swift-argument-parser")]),
+        .executableTarget(
+            name: "dtnping",
+            dependencies: ["DTN7", .product(name: "ArgumentParser", package: "swift-argument-parser")]),
         .testTarget(
-            name: "DTN7Tests",
+            name: "UnitTests",
             dependencies: ["DTN7"]
+        ),
+        .testTarget(
+            name: "IntegrationTests",
+            dependencies: ["DTN7"],
+            path: "Tests",
+            sources: ["IntegrationTests/BasicTests.swift", "Utilities/TestFramework.swift"]
         ),
     ]
 )

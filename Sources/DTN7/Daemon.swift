@@ -1,4 +1,8 @@
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import Hummingbird
 import Logging
 import BP7
@@ -96,7 +100,7 @@ public actor Daemon {
         }
         
         // Set up HTTP API
-        let router = Router()
+        let router = Router<BasicRequestContext>()
         
         self.app = Application(
             router: router,
@@ -145,7 +149,12 @@ public actor Daemon {
     }
     
     /// Set up HTTP routes
-    private func setupRoutes(router: Router<some RequestContext>) {
+    private func setupRoutes(router: Router<BasicRequestContext>) {
+        // Simple test route
+        router.get("/test") { _, _ in
+            return "Test route working"
+        }
+        
         // Status endpoint
         router.get("/") { _,_ in
             return """
@@ -167,7 +176,7 @@ public actor Daemon {
         }
         
         // API routes with JSON responses
-        router.get("/status") { _, _ in
+        router.get("/status") { _, _ async in
             let stats = await self.core.getStatistics()
             let status = StatusResponse(
                 nodeId: self.core.nodeId.description,
@@ -190,7 +199,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode status\"}"
         }
         
-        router.get("/bundles") { _, _ in
+        router.get("/bundles") { _, _ async in
             let count = await self.core.store.count()
             let bundleIds = await self.core.store.allIds()
             
@@ -208,7 +217,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode bundles\"}"
         }
         
-        router.get("/peers") { _, _ in
+        router.get("/peers") { _, _ async in
             let peers = await self.core.peerManager.getAllPeers()
             let peerInfos = peers.map { peer in
                 PeerInfo(
@@ -233,7 +242,7 @@ public actor Daemon {
             return "{\"error\": \"Failed to encode peers\"}"
         }
         
-        router.get("/stats") { _, _ in
+        router.get("/stats") { _, _ async in
             let stats = await self.core.getStatistics()
             let response = StatsResponse(
                 incoming: stats.incoming,
